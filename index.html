@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>趣味空间几何 - 观察物体大挑战</title>
+    
+    <!-- 引入 Tailwind CSS 进行快速且美观的UI排版 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 引入 Three.js 及 OrbitControls -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.143.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.143.0/examples/js/controls/OrbitControls.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&display=swap');
+
+        body {
+            /* 使用温和护眼的低饱和度背景 */
+            background-color: #f0fdf4;
+            font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        .title-font {
+            font-family: 'ZCOOL KuaiLe', cursive, sans-serif;
+        }
+
+        /* 渲染2D平面视图的网格样式 */
+        .view-grid-container {
+            display: inline-grid;
+            gap: 2px;
+            padding: 4px;
+            background-color: rgba(255, 255, 255, 0.5);
+            border-radius: 4px;
+        }
+
+        .view-cell {
+            width: 24px;
+            height: 24px;
+            background-color: #facc15; /* 黄色方块 */
+            border: 2px solid #854d0e;
+            box-shadow: inset -2px -2px 0px rgba(0,0,0,0.1);
+            border-radius: 2px;
+        }
+        @media (min-width: 768px) {
+            .view-cell { width: 36px; height: 36px; }
+        }
+
+        .view-cell-empty {
+            width: 24px;
+            height: 24px;
+        }
+        @media (min-width: 768px) {
+            .view-cell-empty { width: 36px; height: 36px; }
+        }
+
+        /* 选项卡片悬浮特效 */
+        .option-card {
+            transition: all 0.2s ease-in-out;
+        }
+        .option-card:hover:not(.disabled) {
+            transform: translateY(-4px) scale(1.02);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            border-color: #3b82f6;
+        }
+        .option-card.correct {
+            background-color: #dcfce7;
+            border-color: #22c55e;
+            pointer-events: none;
+        }
+        .option-card.wrong {
+            background-color: #fee2e2;
+            border-color: #ef4444;
+            opacity: 0.7;
+            pointer-events: none;
+        }
+        .option-card.disabled {
+            pointer-events: none;
+            opacity: 0.6;
+        }
+
+        /* ThreeJS Canvas 容器 */
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            border-radius: 1rem;
+            overflow: hidden;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.05);
+            background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%);
+            position: relative;
+            cursor: grab;
+        }
+        #canvas-container:active {
+            cursor: grabbing;
+        }
+
+        /* 按钮动画 */
+        .btn-press:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col text-slate-800">
+
+    <!-- 顶部导航与统计 -->
+    <header class="bg-white shadow-sm px-6 py-3 flex justify-between items-center z-10 shrink-0">
+        <div class="flex items-center gap-3">
+            <span class="text-3xl">🧱</span>
+            <h1 class="text-2xl title-font text-blue-600 tracking-wide">观察物体大挑战</h1>
+        </div>
+        
+        <div class="flex items-center gap-6 text-lg font-bold">
+            <div class="flex flex-col items-center leading-tight">
+                <span class="text-slate-400 text-sm">答对题数</span>
+                <span id="score-correct" class="text-green-500 text-xl">0</span>
+            </div>
+            <div class="flex flex-col items-center leading-tight">
+                <span class="text-slate-400 text-sm">总计题数</span>
+                <span id="score-total" class="text-blue-500 text-xl">0</span>
+            </div>
+            <div class="flex flex-col items-center leading-tight">
+                <span class="text-slate-400 text-sm">正确率</span>
+                <span id="score-rate" class="text-orange-500 text-xl">0%</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主体内容区 -->
+    <main class="flex-1 flex flex-col md:flex-row p-4 gap-4 overflow-hidden">
+        
+        <!-- 左侧：3D交互区 -->
+        <section class="flex-1 flex flex-col gap-3 relative h-1/2 md:h-full">
+            <!-- 设置与视角控制面板悬浮在Canvas上 -->
+            <div class="absolute top-4 left-4 z-10 flex flex-col gap-2">
+                <select id="setting-difficulty" class="bg-white/90 backdrop-blur border-2 border-blue-200 rounded-lg px-3 py-1 font-bold text-blue-700 shadow-sm outline-none cursor-pointer">
+                    <option value="easy">难度：简单 (3-5块)</option>
+                    <option value="medium" selected>难度：中等 (6-9块)</option>
+                    <option value="hard">难度：困难 (10-14块)</option>
+                </select>
+                
+                <select id="setting-view" class="bg-white/90 backdrop-blur border-2 border-purple-200 rounded-lg px-3 py-1 font-bold text-purple-700 shadow-sm outline-none cursor-pointer">
+                    <option value="random">考点：随机视图</option>
+                    <option value="front">考点：只考正面</option>
+                    <option value="left">考点：只考左面</option>
+                    <option value="right">考点：只考右面</option>
+                    <option value="top">考点：只考俯视图</option>
+                </select>
+            </div>
+
+            <div class="absolute bottom-4 left-4 right-4 z-10 flex justify-center gap-2 flex-wrap">
+                <button onclick="setCameraView('reset')" class="btn-press bg-white/90 border border-slate-300 text-slate-700 px-3 py-1.5 rounded-full shadow text-sm font-bold flex items-center gap-1">🔄 重置视角</button>
+                <button onclick="setCameraView('front')" class="btn-press bg-blue-100/90 border border-blue-300 text-blue-700 px-3 py-1.5 rounded-full shadow text-sm font-bold">👀 正面</button>
+                <button onclick="setCameraView('left')" class="btn-press bg-green-100/90 border border-green-300 text-green-700 px-3 py-1.5 rounded-full shadow text-sm font-bold">👀 左面</button>
+                <button onclick="setCameraView('top')" class="btn-press bg-orange-100/90 border border-orange-300 text-orange-700 px-3 py-1.5 rounded-full shadow text-sm font-bold">🚁 俯视</button>
+            </div>
+
+            <!-- 渲染3D场景的容器 -->
+            <div id="canvas-container"></div>
+            
+            <p class="text-center text-slate-500 font-bold text-sm">💡 提示：按住鼠标/手指拖动可以360°旋转立体图形，滚动缩放。</p>
+        </section>
+
+        <!-- 右侧：答题区 -->
+        <section class="w-full md:w-2/5 flex flex-col bg-white rounded-2xl shadow-sm border border-slate-200 p-5 overflow-y-auto">
+            
+            <div class="mb-6 border-b-2 border-blue-100 pb-4">
+                <h2 class="text-2xl font-bold text-slate-800 mb-2">
+                    下面这个立体图形，它的 <span id="question-target" class="text-blue-600 text-3xl font-black bg-blue-100 px-2 rounded">【??视图】</span> 是哪一个？
+                </h2>
+                <p class="text-slate-500">请仔细观察左侧的立体图形，选出正确的平面图。</p>
+            </div>
+
+            <!-- 选项容器 (2x2 Grid) -->
+            <div id="options-container" class="grid grid-cols-2 gap-4 flex-1 content-start">
+                <!-- 选项动态生成于此处 -->
+            </div>
+
+            <!-- 反馈区域 -->
+            <div id="feedback-panel" class="mt-6 p-4 rounded-xl hidden flex-col items-center text-center animate-bounce-short">
+                <div id="feedback-icon" class="text-5xl mb-2">✅</div>
+                <h3 id="feedback-title" class="text-xl font-bold mb-1">回答正确！</h3>
+                <p id="feedback-reason" class="text-slate-600 font-bold mb-4">你真棒，空间想象力满分！</p>
+                
+                <button id="btn-next" onclick="generateNewLevel()" class="btn-press w-full bg-blue-500 hover:bg-blue-600 text-white font-black text-xl py-3 rounded-xl shadow-lg transition-colors">
+                    👉 下一题
+                </button>
+            </div>
+
+        </section>
+    </main>
+
+    <script>
+        /**
+         * 游戏核心逻辑与Three.js渲染
+         */
+
+        // --- 游戏状态 ---
+        const gameState = {
+            cubes: [], // 当前关卡的方块坐标数据 [{x,y,z}]
+            targetView: 'front', // 当前考察的视图方向
+            options: [], // 生成的四个选项数据
+            answered: false, // 本题是否已作答
+            stats: { correct: 0, total: 0 }
+        };
+
+        const viewNames = {
+            'front': '正面',
+            'left': '左面',
+            'right': '右面',
+            'top': '俯'
+        };
+
+        // --- Three.js 变量 ---
+        let scene, camera, renderer, controls, cubeGroup;
+        let isAnimatingCamera = false;
+        let targetCameraPos = new THREE.Vector3();
+
+        // 初始化
+        init3D();
+        generateNewLevel();
+
+        // 监听设置变化
+        document.getElementById('setting-difficulty').addEventListener('change', generateNewLevel);
+        document.getElementById('setting-view').addEventListener('change', generateNewLevel);
+        window.addEventListener('resize', onWindowResize, false);
+
+        // --- 1. Three.js 场景初始化 ---
+        function init3D() {
+            const container = document.getElementById('canvas-container');
+            
+            scene = new THREE.Scene();
+            // 不设置scene background，因为我们在CSS里加了渐变背景，并且renderer设置为透明
+            
+            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
+            camera.position.set(10, 8, 12);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // 优化移动端
+            container.appendChild(renderer.domElement);
+
+            // 光照
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.7);
+            dirLight.position.set(10, 20, 10);
+            scene.add(dirLight);
+            const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.3);
+            dirLight2.position.set(-10, -10, -10);
+            scene.add(dirLight2);
+
+            // 控制器
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.minDistance = 5;
+            controls.maxDistance = 25;
+            controls.maxPolarAngle = Math.PI / 2 + 0.1; // 不允许看太多底面
+
+            cubeGroup = new THREE.Group();
+            scene.add(cubeGroup);
+
+            // 渲染循环
+            renderer.setAnimationLoop(() => {
+                controls.update();
+                
+                // 平滑过渡摄像机
+                if(isAnimatingCamera) {
+                    camera.position.lerp(targetCameraPos, 0.1);
+                    if(camera.position.distanceTo(targetCameraPos) < 0.2) {
+                        isAnimatingCamera = false;
+                    }
+                }
+                
+                renderer.render(scene, camera);
+            });
+        }
+
+        function onWindowResize() {
+            const container = document.getElementById('canvas-container');
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        }
+
+        // 动画切换视角
+        function setCameraView(view) {
+            isAnimatingCamera = true;
+            const dist = 15;
+            switch(view) {
+                case 'front': targetCameraPos.set(0, 0, dist); break;
+                case 'left': targetCameraPos.set(-dist, 0, 0); break;
+                case 'right': targetCameraPos.set(dist, 0, 0); break;
+                case 'top': targetCameraPos.set(0, dist, 0.1); break; // 稍微偏一点Z防止万向节死锁
+                case 'reset': targetCameraPos.set(10, 8, 12); break;
+            }
+        }
+
+        // --- 2. 核心逻辑：生成立体图形 ---
+        function generateCubes(num) {
+            const cubes = new Set(['0,0,0']);
+            const arr = [{x:0, y:0, z:0}];
+            const bounds = 2; // 控制在 5x5 的空间内
+
+            while(arr.length < num) {
+                const base = arr[Math.floor(Math.random() * arr.length)];
+                // 可能的延伸方向
+                const dirs = [
+                    {dx:0, dy:1, dz:0},  // 上
+                    {dx:1, dy:0, dz:0},  // 右
+                    {dx:-1, dy:0, dz:0}, // 左
+                    {dx:0, dy:0, dz:1},  // 前
+                    {dx:0, dy:0, dz:-1}  // 后
+                ];
+                const dir = dirs[Math.floor(Math.random() * dirs.length)];
+                const nx = base.x + dir.dx;
+                const ny = base.y + dir.dy;
+                const nz = base.z + dir.dz;
+                const key = `${nx},${ny},${nz}`;
+
+                // 边界检查
+                if (Math.abs(nx) > bounds || Math.abs(nz) > bounds || ny > bounds + 1) continue;
+                // 重复检查
+                if (cubes.has(key)) continue;
+                // 悬空检查：如果不是地面(y=0)，必须有下方支撑
+                if (ny > 0 && !cubes.has(`${nx},${ny-1},${nz}`)) continue;
+                // 不能向地下延伸
+                if (ny < 0) continue;
+
+                cubes.add(key);
+                arr.push({x:nx, y:ny, z:nz});
+            }
+
+            // 计算中心偏移，使图形整体居中
+            let minX = Math.min(...arr.map(c=>c.x)), maxX = Math.max(...arr.map(c=>c.x));
+            let minZ = Math.min(...arr.map(c=>c.z)), maxZ = Math.max(...arr.map(c=>c.z));
+            let offsetX = - (minX + maxX) / 2;
+            let offsetZ = - (minZ + maxZ) / 2;
+            
+            return arr.map(c => ({
+                x: c.x + offsetX,
+                y: c.y, // Y不偏移，保证在地面
+                z: c.z + offsetZ
+            }));
+        }
+
+        // 在ThreeJS中绘制方块
+        function renderCubes(cubes) {
+            // 清除旧模型
+            while(cubeGroup.children.length > 0){ 
+                cubeGroup.remove(cubeGroup.children[0]); 
+            }
+
+            const geometry = new THREE.BoxGeometry(1, 1, 1);
+            // 给小方块设计漂亮的材质
+            const material = new THREE.MeshLambertMaterial({ 
+                color: 0xfacc15, // Tailwind yellow-400
+            });
+            const edgesGeo = new THREE.EdgesGeometry(geometry);
+            const edgeMat = new THREE.LineBasicMaterial({ color: 0x854d0e, linewidth: 2 }); // 深色描边
+
+            cubes.forEach(c => {
+                const mesh = new THREE.Mesh(geometry, material);
+                // 调整位置，因为box几何体中心在0,0,0，我们希望底部在y=0
+                mesh.position.set(c.x, c.y + 0.5, c.z);
+                
+                // 添加描边，让方块边缘清晰（符合小学课本画法）
+                const edges = new THREE.LineSegments(edgesGeo, edgeMat);
+                mesh.add(edges);
+
+                cubeGroup.add(mesh);
+            });
+        }
+
+        // --- 3. 核心数学：计算 2D 视图投影 ---
+        
+        // 投影坐标映射规则：
+        // 目标是映射到UI的二维网格，u为横轴(向右)，v为纵轴(向下)
+        // 3D中 Y 轴向上，而 2D网格中 v 轴向下，因此包含负号。
+        function getProjectionRaw(cubes, viewType) {
+            let points = [];
+            cubes.forEach(c => {
+                let u, v;
+                switch(viewType) {
+                    case 'front': 
+                        u = c.x; v = -c.y; 
+                        break;
+                    case 'left':  
+                        // 站在左边看，+z 在右边
+                        u = c.z; v = -c.y; 
+                        break;
+                    case 'right': 
+                        // 站在右边看，-z 在右边
+                        u = -c.z; v = -c.y; 
+                        break;
+                    case 'top':   
+                        // 俯视，+x在右，+z在下(靠近自己)
+                        u = c.x; v = c.z;  
+                        break;
+                }
+                points.push({u, v});
+            });
+            return points;
+        }
+
+        // 标准化网格：去重，并将坐标平移至最小从0开始
+        function normalizeGrid(points) {
+            if(points.length === 0) return [];
+            // 去重
+            const unique = [];
+            const set = new Set();
+            points.forEach(p => {
+                const key = `${Math.round(p.u)},${Math.round(p.v)}`;
+                if(!set.has(key)){
+                    set.add(key);
+                    unique.push({u: Math.round(p.u), v: Math.round(p.v)});
+                }
+            });
+
+            let minU = Math.min(...unique.map(p => p.u));
+            let minV = Math.min(...unique.map(p => p.v));
+            
+            // 排序保证一致性（先按v再按u）
+            return unique.map(p => ({u: p.u - minU, v: p.v - minV}))
+                         .sort((a,b) => a.v === b.v ? a.u - b.u : a.v - b.v);
+        }
+
+        // 网格签名，用于对比两个网格是否形状完全相同
+        function gridSignature(grid) {
+            return grid.map(p => `${p.u},${p.v}`).join('|');
+        }
+
+        // --- 4. 生成错误选项 (高迷惑性) ---
+        function generateDistractors(cubes, targetView) {
+            const correctRaw = getProjectionRaw(cubes, targetView);
+            const correctNorm = normalizeGrid(correctRaw);
+            const correctSig = gridSignature(correctNorm);
+            
+            const options = [];
+            const signatures = new Set();
+            
+            // 记录选项
+            function addOption(grid, text, type) {
+                const norm = normalizeGrid(grid);
+                const sig = gridSignature(norm);
+                if (!signatures.has(sig) && sig !== correctSig && norm.length > 0) {
+                    signatures.add(sig);
+                    options.push({ grid: norm, reason: text, isCorrect: false, type: type });
+                    return true;
+                }
+                return false;
+            }
+
+            // 1. 左右镜像错位
+            let maxU = Math.max(...correctNorm.map(p=>p.u));
+            let mirrorHoriz = correctNorm.map(p => ({u: maxU - p.u, v: p.v}));
+            addOption(mirrorHoriz, "注意左右方向不要看反哦，这个选项左右颠倒了！", "flip_h");
+
+            // 2. 漏画方块
+            if (correctNorm.length > 2) {
+                // 随机去掉最边缘的一个（这里简单去掉排序后的最后一个或第一个）
+                let missBlock = correctNorm.slice(0, correctNorm.length - 1);
+                addOption(missBlock, "仔细观察，你少画了被遮挡/边缘的方块哦！", "miss");
+            }
+
+            // 3. 混淆其他视图
+            const altViews = ['front', 'left', 'right', 'top'].filter(v => v !== targetView);
+            for(let altView of altViews) {
+                let altGrid = normalizeGrid(getProjectionRaw(cubes, altView));
+                if (addOption(altGrid, `看错面啦，这是从【${viewNames[altView]}】看到的形状！`, "wrong_view")) {
+                    break; // 只要加入一个其他视图的错项即可
+                }
+            }
+
+            // 4. 多画方块 (随机变异)
+            let addMut = [...correctNorm, {u: correctNorm[0].u+1, v: correctNorm[0].v}];
+            addOption(addMut, "多画了方块，再转转立体图形仔细核对一下！", "add");
+            
+            let addMut2 = [...correctNorm, {u: correctNorm[correctNorm.length-1].u, v: correctNorm[correctNorm.length-1].v+1}];
+            addOption(addMut2, "多画了方块，形状不对哦！", "add2");
+
+            // 上下颠倒
+            let maxV = Math.max(...correctNorm.map(p=>p.v));
+            let mirrorVert = correctNorm.map(p => ({u: p.u, v: maxV - p.v}));
+            addOption(mirrorVert, "上下方向看颠倒啦，立体感还要加强哦！", "flip_v");
+
+            // 补齐选项直到包含3个错误选项
+            let attempts = 0;
+            while (options.length < 3 && attempts < 20) {
+                // 随机增删
+                let rGrid = correctNorm.map(p => ({...p}));
+                if (Math.random()>0.5 && rGrid.length>1) {
+                    rGrid.pop();
+                } else {
+                    rGrid.push({u: Math.floor(Math.random()*3), v: Math.floor(Math.random()*3)});
+                }
+                addOption(rGrid, "这个形状跟正确视图不符合哦，再看一遍！", "rand");
+                attempts++;
+            }
+
+            // 截取前3个错误选项
+            const finalOptions = options.slice(0, 3);
+            
+            // 混入正确选项
+            finalOptions.push({ grid: correctNorm, reason: "正确！", isCorrect: true });
+            
+            // 打乱顺序返回
+            return finalOptions.sort(() => Math.random() - 0.5);
+        }
+
+        // --- 5. UI 渲染与交互 ---
+        
+        // 生成HTML Grid DOM 来显示平面图
+        function renderViewGridToHTML(gridData) {
+            if(!gridData || gridData.length === 0) return '';
+            
+            let maxU = Math.max(...gridData.map(p=>p.u));
+            let maxV = Math.max(...gridData.map(p=>p.v));
+            let width = maxU + 1;
+            let height = maxV + 1;
+
+            let html = `<div class="view-grid-container" style="grid-template-columns: repeat(${width}, max-content); grid-template-rows: repeat(${height}, max-content);">`;
+            
+            for(let v = 0; v < height; v++) {
+                for(let u = 0; u < width; u++) {
+                    const hasBlock = gridData.find(p => p.u === u && p.v === v);
+                    if(hasBlock) {
+                        html += `<div class="view-cell"></div>`;
+                    } else {
+                        html += `<div class="view-cell-empty"></div>`;
+                    }
+                }
+            }
+            html += `</div>`;
+            return html;
+        }
+
+        function generateNewLevel() {
+            gameState.answered = false;
+            
+            // 隐藏反馈面板
+            const feedback = document.getElementById('feedback-panel');
+            feedback.classList.add('hidden');
+            feedback.classList.remove('flex');
+
+            // 决定参数
+            const diffSetting = document.getElementById('setting-difficulty').value;
+            let numCubes = 5;
+            if(diffSetting === 'easy') numCubes = Math.floor(Math.random() * 3) + 3; // 3-5
+            else if(diffSetting === 'medium') numCubes = Math.floor(Math.random() * 4) + 6; // 6-9
+            else if(diffSetting === 'hard') numCubes = Math.floor(Math.random() * 5) + 10; // 10-14
+
+            const viewSetting = document.getElementById('setting-view').value;
+            if(viewSetting === 'random') {
+                const views = ['front', 'left', 'right', 'top'];
+                gameState.targetView = views[Math.floor(Math.random() * views.length)];
+            } else {
+                gameState.targetView = viewSetting;
+            }
+
+            // 更新题干
+            document.getElementById('question-target').innerText = `【${viewNames[gameState.targetView]}视图】`;
+
+            // 生成立体与选项
+            gameState.cubes = generateCubes(numCubes);
+            renderCubes(gameState.cubes);
+            
+            // 镜头重置
+            setCameraView('reset');
+
+            gameState.options = generateDistractors(gameState.cubes, gameState.targetView);
+
+            // 渲染选项面板
+            const optContainer = document.getElementById('options-container');
+            optContainer.innerHTML = '';
+            
+            const labels = ['A', 'B', 'C', 'D'];
+
+            gameState.options.forEach((opt, index) => {
+                const btn = document.createElement('div');
+                btn.className = 'option-card bg-slate-50 border-2 border-slate-200 rounded-xl p-4 flex flex-col items-center justify-center cursor-pointer min-h-[140px]';
+                btn.id = `option-${index}`;
+                
+                const labelHTML = `<div class="w-full text-left font-black text-slate-400 mb-2">${labels[index]}</div>`;
+                const gridHTML = renderViewGridToHTML(opt.grid);
+                
+                btn.innerHTML = labelHTML + gridHTML;
+                
+                btn.addEventListener('click', () => checkAnswer(index, btn));
+                optContainer.appendChild(btn);
+            });
+        }
+
+        function checkAnswer(index, btnElement) {
+            if (gameState.answered) return;
+            gameState.answered = true;
+            gameState.stats.total++;
+            
+            const selectedOpt = gameState.options[index];
+            const feedback = document.getElementById('feedback-panel');
+            const fbIcon = document.getElementById('feedback-icon');
+            const fbTitle = document.getElementById('feedback-title');
+            const fbReason = document.getElementById('feedback-reason');
+
+            // 锁定所有选项
+            const allCards = document.querySelectorAll('.option-card');
+            allCards.forEach(card => card.classList.add('disabled'));
+
+            // 找到正确选项的DOM索引
+            const correctIndex = gameState.options.findIndex(o => o.isCorrect);
+            const correctBtn = document.getElementById(`option-${correctIndex}`);
+            
+            if (selectedOpt.isCorrect) {
+                // 正确
+                gameState.stats.correct++;
+                btnElement.classList.add('correct');
+                
+                feedback.className = "mt-6 p-4 rounded-xl flex flex-col items-center text-center bg-green-50 border border-green-200 animate-bounce";
+                fbIcon.innerText = "🎉";
+                fbTitle.innerText = "回答正确！";
+                fbTitle.className = "text-xl font-black mb-1 text-green-600";
+                fbReason.innerText = "太棒啦，空间想象力满分！";
+                
+                // 庆祝视角转换
+                setCameraView(gameState.targetView);
+            } else {
+                // 错误
+                btnElement.classList.add('wrong');
+                correctBtn.classList.add('correct'); // 高亮正确答案
+                
+                feedback.className = "mt-6 p-4 rounded-xl flex flex-col items-center text-center bg-red-50 border border-red-200";
+                fbIcon.innerText = "🤔";
+                fbTitle.innerText = "哎呀，选错了！";
+                fbTitle.className = "text-xl font-black mb-1 text-red-600";
+                fbReason.innerText = selectedOpt.reason;
+                
+                // 帮助学生：转到题目要求的视角让他看
+                setCameraView(gameState.targetView);
+            }
+
+            // 更新面板状态
+            document.getElementById('score-correct').innerText = gameState.stats.correct;
+            document.getElementById('score-total').innerText = gameState.stats.total;
+            const rate = Math.round((gameState.stats.correct / gameState.stats.total) * 100);
+            document.getElementById('score-rate').innerText = rate + '%';
+        }
+
+    </script>
+</body>
+</html>
